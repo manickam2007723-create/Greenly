@@ -402,6 +402,7 @@ async function loadOrders() {
                     </div>
                     <div style="text-align: right;">
                         <div style="font-weight: bold; color: var(--accent-color); font-size: 1.1rem;">₹${order.total}</div>
+                        ${order.deliveryCharge !== undefined ? `<div style="font-size: 0.85rem; color: var(--text-muted);">incl. Delivery: ${order.deliveryCharge > 0 ? '₹' + order.deliveryCharge : 'Free'}</div>` : ''}
                         <div style="font-size: 0.85rem; color: var(--text-muted);">${order.date}</div>
                     </div>
                 </div>

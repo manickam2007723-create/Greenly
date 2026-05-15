@@ -252,7 +252,7 @@ window.buyNow = (id) => {
 };
 
 window.updateCheckoutTotal = () => {
-    let grandTotal = 0;
+    let subtotal = 0;
     const rows = document.querySelectorAll('.checkout-item-row');
     rows.forEach(row => {
         const id = row.dataset.id;
@@ -261,19 +261,39 @@ window.updateCheckoutTotal = () => {
         const qty = parseInt(qtyInput.value) || 1;
         
         const itemTotal = price * qty;
-        grandTotal += itemTotal;
+        subtotal += itemTotal;
         row.querySelector('.chk-item-total').innerText = '₹' + itemTotal.toFixed(2);
     });
+
+    const deliveryCharge = subtotal > 1000 ? 20 : 0;
+    const deliveryEl = document.getElementById('chk-delivery-charge');
+    if (deliveryEl) {
+        deliveryEl.innerText = deliveryCharge > 0 ? '₹' + deliveryCharge.toFixed(2) : 'Free';
+    }
+
+    let grandTotal = subtotal + deliveryCharge;
 
     const rewardCheckbox = document.getElementById('chk_claim_reward');
     let discountHTML = '';
     if (rewardCheckbox && rewardCheckbox.checked) {
         const discountAmt = parseInt(rewardCheckbox.dataset.discount) || 20;
         grandTotal = Math.max(0, grandTotal - discountAmt);
-        discountHTML = `
+        discountHTML += `
             <div style="display: flex; justify-content: space-between; margin-top: 0.5rem; font-size: 1rem; color: #2e7d32;">
                 <strong>Eco Reward Applied:</strong>
                 <span>-₹${discountAmt.toFixed(2)}</span>
+            </div>
+        `;
+    }
+
+    const spinRewardCheckbox = document.getElementById('chk_use_spin_reward');
+    if (spinRewardCheckbox && spinRewardCheckbox.checked) {
+        const spinDiscountAmt = parseInt(spinRewardCheckbox.dataset.discount) || 0;
+        grandTotal = Math.max(0, grandTotal - spinDiscountAmt);
+        discountHTML += `
+            <div style="display: flex; justify-content: space-between; margin-top: 0.5rem; font-size: 1rem; color: #2e7d32;">
+                <strong>Spin Reward Applied:</strong>
+                <span>-₹${spinDiscountAmt.toFixed(2)}</span>
             </div>
         `;
     }
@@ -342,10 +362,30 @@ window.handleDirectCheckout = async (e) => {
 
   const rewardCheckbox = document.getElementById('chk_claim_reward');
   const discountAmt = rewardCheckbox ? (parseInt(rewardCheckbox.dataset.discount) || 20) : 0;
-  const claimedReward = rewardCheckbox && rewardCheckbox.checked ? `₹${discountAmt} Eco Score Discount` : null;
+  let claimedReward = rewardCheckbox && rewardCheckbox.checked ? `₹${discountAmt} Eco Score Discount` : null;
 
-  let calculatedTotal = itemsToOrder.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  if (claimedReward) calculatedTotal = Math.max(0, calculatedTotal - discountAmt);
+  let subtotal = itemsToOrder.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  let deliveryCharge = subtotal > 1000 ? 20 : 0;
+  let calculatedTotal = subtotal + deliveryCharge;
+
+  if (rewardCheckbox && rewardCheckbox.checked) {
+      calculatedTotal = Math.max(0, calculatedTotal - discountAmt);
+  }
+
+  const spinRewardCheckbox = document.getElementById('chk_use_spin_reward');
+  const spinDiscountAmt = spinRewardCheckbox && spinRewardCheckbox.checked ? parseInt(spinRewardCheckbox.dataset.discount) || 0 : 0;
+  if (spinDiscountAmt > 0) {
+      calculatedTotal = Math.max(0, calculatedTotal - spinDiscountAmt);
+      if (claimedReward) claimedReward += ` + ₹${spinDiscountAmt} Spin Reward`;
+      else claimedReward = `₹${spinDiscountAmt} Spin Reward`;
+
+      // Deduct reward
+      if (currentUser) {
+          currentUser.availableReward -= spinDiscountAmt;
+          if (currentUser.availableReward < 0) currentUser.availableReward = 0;
+      }
+  }
+
   const total = calculatedTotal.toFixed(2);
 
   const newOrder = {
@@ -699,7 +739,9 @@ const views = {
     const items = currentCheckoutItem && currentCheckoutItem.quantity ? [currentCheckoutItem] : cart;
     if (items.length === 0) return views['cart']();
 
-    const total = items.reduce((sum, item) => sum + (item.price * item.quantity), 0).toFixed(2);
+    const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const deliveryCharge = subtotal > 1000 ? 20 : 0;
+    const total = (subtotal + deliveryCharge).toFixed(2);
     const ecoScore = items.reduce((score, item) => score + (augmentProduct(item).isBiodegradable ? 2 : -2) * item.quantity, 0);
     const eligibleForReward = ecoScore >= 10;
 
@@ -758,6 +800,10 @@ const views = {
                   <span class="chk-item-total" style="font-weight: bold;">₹${(item.price * item.quantity).toFixed(2)}</span>
                 </div>
               `).join('')}
+              <div style="display: flex; justify-content: space-between; margin-top: 1rem;">
+                <strong>Delivery Charge</strong>
+                <strong id="chk-delivery-charge">${deliveryCharge > 0 ? '₹' + deliveryCharge.toFixed(2) : 'Free'}</strong>
+              </div>
               <div style="display: flex; justify-content: space-between; margin-top: 1.5rem; font-size: 1.25rem;">
                 <strong>Grand Total</strong>
                 <strong id="chk-grand-total" style="color: var(--accent-color);">₹${total}</strong>
@@ -774,6 +820,17 @@ const views = {
                   : `<p style="margin-bottom:0; font-size:0.95rem; color: #856404;">You need an Eco Score of at least +10 to unlock discounts. Consider swapping non-biodegradable items for better choices!</p>`
                 }
               </div>
+              
+              ${currentUser && currentUser.availableReward ? `
+              <div style="margin-top: 1rem; background: #e3f2fd; padding: 1.5rem; border-radius: 8px; border: 1px solid #90caf9;">
+                 <h4 style="margin-top:0; color: #1565c0; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;"><i data-feather="gift"></i> Your Spin Reward Available</h4>
+                 <p style="margin-bottom:0; font-size:0.95rem; color: #1565c0;">You have a reward available from your recent spin!</p>
+                 <label style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem; cursor: pointer; color: #1565c0; font-weight: bold; background: white; padding: 0.8rem; border-radius: 4px; border: 1px dashed #1565c0;">
+                    <input type="checkbox" id="chk_use_spin_reward" onchange="window.updateCheckoutTotal()" data-discount="${currentUser.availableReward}">
+                    Apply Spin Reward (₹${currentUser.availableReward} Off)
+                 </label>
+              </div>
+              ` : ''}
             </div>
           </div>
 
@@ -848,6 +905,7 @@ const views = {
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
           <div style="font-size: 1.1rem; font-weight: bold; color: var(--accent-color);">
             Total: ₹${order.total}
+            ${order.deliveryCharge !== undefined ? `<br><span style="font-size: 0.85rem; color: var(--text-muted); font-weight: normal;">(incl. Delivery: ${order.deliveryCharge > 0 ? '₹' + order.deliveryCharge : 'Free'})</span>` : ''}
           </div>
           <div>
             ${order.status === 'Cancelled' ?
@@ -1218,26 +1276,27 @@ window.spinRewardsWheel = (currentScore) => {
     
     setTimeout(() => {
         wheel.dataset.spinning = 'false';
-        const rawDeg = deg % 360;
-        const targetDeg = 360 - rawDeg; 
-        const customR = JSON.parse(localStorage.getItem('ecoMart_customRewards')) || [];
-        const spinPrizes = customR.filter(r => r.type === 'SpinWheel');
-        let reward = "";
         
-        if (spinPrizes.length >= 4) {
-             if (targetDeg >= 0 && targetDeg < 90) reward = spinPrizes[0].name;
-             else if (targetDeg >= 90 && targetDeg < 180) reward = spinPrizes[1].name;
-             else if (targetDeg >= 180 && targetDeg < 270) reward = spinPrizes[2].name;
-             else reward = spinPrizes[3].name;
-        } else if (spinPrizes.length > 0) {
-             reward = spinPrizes[Math.floor(Math.random() * spinPrizes.length)].name;
+        const userOrders = orders.filter(o => o.userEmail === currentUser.email && o.status !== 'Cancelled');
+        const lastOrder = userOrders[0];
+        let lastOrderTotal = lastOrder ? parseFloat(lastOrder.total) : 0;
+        
+        let reward = "";
+        let discountValue = 0;
+        
+        if (lastOrderTotal > 1000) {
+            reward = "High Value Reward: ₹100 Off on next order!";
+            discountValue = 100;
+        } else if (lastOrderTotal > 0) {
+            reward = "Low Value Reward: ₹20 Off on next order!";
+            discountValue = 20;
         } else {
-            // Default generic fallback if admin hasn't added custom ones
-            if (targetDeg >= 0 && targetDeg < 90) reward = "Mystery Prize A (₹10 Cashback code emailed to you)!";
-            else if (targetDeg >= 90 && targetDeg < 180) reward = "Gift Box (5% Discount applied below)!";
-            else if (targetDeg >= 180 && targetDeg < 270) reward = "Surprise Package (₹20 Off instantly)!";
-            else reward = "Exclusive Prize (Free Shipping tracking code)!";
+            reward = "Welcome Reward: ₹10 Off on next order!";
+            discountValue = 10;
         }
+
+        // Add this reward to user profile so they can use it next time
+        currentUser.availableReward = (currentUser.availableReward || 0) + discountValue;
 
         // Subtract 4 points permanently AFTER they got the reward
         currentUser.spinPenalty = (currentUser.spinPenalty || 0) + 4;
